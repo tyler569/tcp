@@ -1,24 +1,27 @@
-use crate::network_checksum;
+use crate::{AsSlice, network_checksum};
 
-#[repr(u8)]
-enum IcmpType {
-    EchoReply = 0,
-    DestinationUnreachable = 3,
-    SourceQuench = 4,
-    RedirectMessage = 5,
-    EchoRequest = 8,
-    RouterAdvertisement = 9,
-    RouterSolicitation = 10,
-    TimeExceeded = 11,
-    BadIpHeader = 12,
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IcmpType(u8);
+
+impl IcmpType {
+    pub const ECHO_REPLY: Self = Self(0);
+    pub const DESTINATION_UNREACHABLE: Self = Self(3);
+    pub const SOURCE_QUENCH: Self = Self(4);
+    pub const REDIRECT_MESSAGE: Self = Self(5);
+    pub const ECHO_REQUEST: Self = Self(8);
+    pub const ROUTER_ADVERTISEMENT: Self = Self(9);
+    pub const ROUTER_SOLICITATION: Self = Self(10);
+    pub const TIME_EXCEEDED: Self = Self(11);
+    pub const BAD_IP_HEADER: Self = Self(12);
 }
 
 #[repr(C, packed)]
-struct IcmpHeader {
-    type_: u8,
-    code: u8,
-    checksum: u16,
-    field: u32,
+#[derive(Debug, Copy, Clone)]
+pub struct IcmpHeader {
+    pub type_: IcmpType,
+    pub code: u8,
+    pub checksum: u16,
 }
 
 impl IcmpHeader {
@@ -30,4 +33,11 @@ impl IcmpHeader {
             self.checksum
         )
     }
+
+    // SAFETY: Needs to be given a valid length
+    pub unsafe fn set_checksum(&mut self, length: usize) {
+        self.checksum = self.checksum(length);
+    }
 }
+
+impl AsSlice for IcmpHeader {}

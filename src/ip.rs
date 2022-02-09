@@ -1,64 +1,91 @@
-use crate::network_checksum;
+use crate::{AsSlice, network_checksum};
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct IpProtocol(u8);
+
+impl IpProtocol {
+    pub const ICMP: Self = Self(1);
+    pub const TCP: Self = Self(6);
+    pub const UDP: Self = Self(17);
+}
+
+impl std::fmt::Debug for IpProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::ICMP => write!(f, "IpProtocol(ICMP)"),
+            Self::TCP => write!(f, "IpProtocol(TCP)"),
+            Self::UDP => write!(f, "IpProtocol(UDP)"),
+            _ => write!(f, "IpProtocol(Unknown ({}))", self.0),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct IpHeader {
-    version_ihl: u8,
-    dscp_ecn: u8,
-    total_len: u16,
-    id: u16,
-    flags_frag_offset: u16,
-    ttl: u8,
-    protocol: u8,
-    checksum: u16,
-    source: u32,
-    destination: u32,
-}
-
-/// Swap all the multibyte fields in an [`IpHeader`], providing convenient
-/// native-endian access to everything super fast. When this goes out of
-/// scope, swap them all back.
-///
-/// In the future, it should be impossible to do some things to headers in
-/// this wrapper, for example it should be impossible to compute or set
-/// their checksums, as that will always be wrong in native-endian order.
-///
-/// This currently DOES NOT actually swap to native-endian order, it assumes
-/// the running machine is Little-Endian for now. Rust doesn't have a
-/// convenient builtin API for "swap_bytes from X endian to native" without
-/// going through `[u8; N]` objects.
-struct NeIpHeader<'a>(&'a mut IpHeader);
-
-impl<'a> Drop for NeIpHeader<'a> {
-    fn drop(&mut self) {
-        self.0.bswap_internal();
-    }
+    pub version_ihl: u8,
+    pub dscp_ecn: u8,
+    pub total_len: u16,
+    pub id: u16,
+    pub flags_frag_offset: u16,
+    pub ttl: u8,
+    pub protocol: IpProtocol,
+    pub checksum: u16,
+    pub source: u32,
+    pub destination: u32,
 }
 
 impl IpHeader {
+    pub const RESERVED_BIT: u16 = 0x8000;
+    pub const DF_BIT: u16 = 0x4000;
+    pub const MF_BIT: u16 = 0x2000;
+
     pub fn version(&self) -> u8 {
-        (self.version_ihl & 0xF0) >> 4
+        ((self.version_ihl & 0xF0) >> 4) & 0x7
     }
 
     pub fn header_len(&self) -> u8 {
         (self.version_ihl & 0x0F) * 4
     }
 
-    fn bswap_internal(&mut self) {
+    pub fn reserved_bit(&self) -> bool {
+        assert!(self.is_native_endian());
+        self.flags_frag_offset & Self::RESERVED_BIT != 0
+    }
+
+    pub fn df_bit(&self) -> bool {
+        assert!(self.is_native_endian());
+        self.flags_frag_offset & Self::DF_BIT != 0
+    }
+
+    pub fn mf_bit(&self) -> bool {
+        assert!(self.is_native_endian());
+        self.flags_frag_offset & Self::MF_BIT != 0
+    }
+
+    pub fn frag_offset(&self) -> usize {
+        assert!(self.is_native_endian());
+        (self.flags_frag_offset & 0x1FFF) as usize * 8
+    }
+
+    pub fn bswap(&mut self) {
         self.total_len = self.total_len.swap_bytes();
         self.id = self.id.swap_bytes();
         self.flags_frag_offset = self.flags_frag_offset.swap_bytes();
         self.checksum = self.checksum.swap_bytes();
         self.source = self.source.swap_bytes();
         self.destination = self.destination.swap_bytes();
+
+        // marker bit in MSB of version_ihl
+        self.version_ihl ^= 0x80;
     }
 
-    fn bswap(&mut self) -> NeIpHeader {
-        self.bswap_internal();
-        NeIpHeader(self)
+    pub fn is_native_endian(&self) -> bool {
+        self.version_ihl & 0x80 != 0
     }
 
     pub fn checksum(&self) -> u16 {
+        assert!(!self.is_native_endian());
         // SAFETY: network_checksum is unsafe becuase it cannot verify the
         // valid length of the pointer. Here, we pass a pointer to an
         // IpHeader and its known size of `header_len()`, thus it is safe.
@@ -71,10 +98,27 @@ impl IpHeader {
         }
     }
 
-    fn set_checksum(&mut self) {
+    pub fn set_checksum(&mut self) {
         self.checksum = self.checksum();
     }
+
+    pub fn reply_header(&self) -> Self {
+        Self {
+            version_ihl: 0x45 | (self.version_ihl & 0x80),
+            dscp_ecn: self.dscp_ecn,
+            total_len: 0,
+            id: self.id,
+            flags_frag_offset: self.flags_frag_offset,
+            ttl: self.ttl - 1,
+            protocol: self.protocol,
+            checksum: 0,
+            source: self.destination,
+            destination: self.source,
+        }
+    }
 }
+
+impl AsSlice for IpHeader {}
 
 #[test]
 fn test_ip_checksum() {
@@ -84,7 +128,7 @@ fn test_ip_checksum() {
         0xc0, 0xa8, 0x00, 0xc7,
     ];
     let header = unsafe { &mut *(buffer.as_mut_ptr() as *mut IpHeader) };
-    assert_eq!(header.checksum(), 0xb861);
+    assert_eq!(header.checksum(), 0x61b8);
 }
 
 #[test]
@@ -95,9 +139,8 @@ fn test_bswap() {
         0xc0, 0xa8, 0x00, 0xc7,
     ];
     let header = unsafe { &mut *(buffer.as_mut_ptr() as *mut IpHeader) };
-    {
-        let ne_header = header.bswap();
-        assert_eq!(ne_header.0.total_len, 0x0073);
-    }
+    header.bswap();
+    assert_eq!(header.total_len, 0x0073);
+    header.bswap();
     assert_eq!(header.total_len, 0x7300);
 }
