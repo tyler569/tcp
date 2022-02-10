@@ -1,5 +1,6 @@
 use crate::icmp::IcmpHeader;
 use crate::ip::IpHeader;
+use crate::udp::UdpHeader;
 use crate::AsSlice;
 
 pub struct PacketView<'a> {
@@ -79,12 +80,20 @@ impl Packet {
         unsafe { Some(&*(self.l4_ptr()? as *const IcmpHeader)) }
     }
 
+    pub fn udp_header(&self) -> Option<&UdpHeader> {
+        unsafe { Some(&*(self.l4_ptr()? as *const UdpHeader)) }
+    }
+
     pub fn ip_header_mut(&mut self) -> Option<&mut IpHeader> {
         unsafe { Some(&mut *(self.l3_mut_ptr()? as *mut IpHeader)) }
     }
 
     pub fn icmp_header_mut(&mut self) -> Option<&mut IcmpHeader> {
         unsafe { Some(&mut *(self.l4_mut_ptr()? as *mut IcmpHeader)) }
+    }
+
+    pub fn udp_header_mut(&mut self) -> Option<&mut UdpHeader> {
+        unsafe { Some(&mut *(self.l4_mut_ptr()? as *mut UdpHeader)) }
     }
 
     pub fn data(&self) -> Option<&[u8]> {
@@ -111,6 +120,6 @@ fn test_packet_sub() {
     let mut packet = Packet::new(buffer.to_vec());
     packet.l3_offset = Some(0);
     let header = packet.ip_header().unwrap();
-    assert_eq!(header.checksum(), !0x4500u16);
+    assert_eq!(header.checksum(), !0x0045u16);
     assert!(packet.data().is_none());
 }

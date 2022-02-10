@@ -9,3 +9,4 @@ edition = "2021"
 
 ifstructs = "0.1.1"
 libc = "0.2.117"
+rand = "0.8.4"
