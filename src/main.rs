@@ -1,14 +1,14 @@
+use ifstructs::ifreq;
+use libc::{c_short, c_ulong, c_void, close, ioctl, open, O_RDWR};
 use std::fs::File;
 use std::io::{Error, Read, Result, Write};
 use std::os::unix::io::FromRawFd;
-use ifstructs::ifreq;
-use libc::{open, close, ioctl, c_ulong, c_short, c_void, O_RDWR};
 
 mod icmp;
 mod ip;
 mod packet;
 
-use icmp::{IcmpType, IcmpHeader};
+use icmp::{IcmpHeader, IcmpType};
 use ip::IpProtocol;
 use packet::Packet;
 
@@ -39,9 +39,8 @@ fn main() -> Result<()> {
 
 fn read_packet() -> Packet {
     let mut buffer = [0; 4096];
-    let n_read = unsafe {
-        INTERFACE.as_mut().unwrap().read(&mut buffer)
-    }.unwrap();
+    let n_read =
+        unsafe { INTERFACE.as_mut().unwrap().read(&mut buffer) }.unwrap();
     let vec = buffer[..n_read].to_vec();
     println!("-> {:02x?}", vec);
     Packet::new(vec)
@@ -50,7 +49,11 @@ fn read_packet() -> Packet {
 fn send_packet(packet: &Packet) {
     println!("<- {:02x?}", packet.whole());
     unsafe {
-        INTERFACE.as_mut().unwrap().write(packet.whole().unwrap()).unwrap();
+        INTERFACE
+            .as_mut()
+            .unwrap()
+            .write(packet.whole().unwrap())
+            .unwrap();
     }
 }
 
@@ -80,7 +83,6 @@ fn handle_icmp_echo(packet: &mut Packet) {
     send_icmp(packet, IcmpType::ECHO_REPLY, packet.data().unwrap());
 }
 
-
 fn send_icmp(packet: &Packet, type_: icmp::IcmpType, data: &[u8]) {
     let reply_header = packet.ip_header().unwrap().reply_header();
     let icmp_header = IcmpHeader {
@@ -92,11 +94,15 @@ fn send_icmp(packet: &Packet, type_: icmp::IcmpType, data: &[u8]) {
     let mut reply_packet = Packet::new_from_data(data);
     reply_packet.fill_l4(icmp_header);
     reply_packet.fill_l3(reply_header);
-    reply_packet.ip_header_mut().unwrap().total_len = reply_packet.len().unwrap() as u16;
+    reply_packet.ip_header_mut().unwrap().total_len =
+        reply_packet.len().unwrap() as u16;
     reply_packet.ip_header_mut().unwrap().bswap();
     reply_packet.ip_header_mut().unwrap().set_checksum();
     unsafe {
-        reply_packet.icmp_header_mut().unwrap().set_checksum(data_len + 4);
+        reply_packet
+            .icmp_header_mut()
+            .unwrap()
+            .set_checksum(data_len + 4);
     }
 
     send_packet(&reply_packet);
@@ -133,17 +139,26 @@ fn ones_complement_sum(a: u16, b: u16) -> u16 {
     result
 }
 
-pub unsafe fn network_checksum(pointer: *const u16, length: usize, checksum: u16) -> u16 {
+pub unsafe fn network_checksum(
+    pointer: *const u16,
+    length: usize,
+    checksum: u16,
+) -> u16 {
     let mut acc = !checksum.swap_bytes();
-    for i in 0..length/2 {
-        acc = ones_complement_sum(acc,
-                (*pointer.offset(i as isize)).swap_bytes());
+    for i in 0..length / 2 {
+        acc = ones_complement_sum(
+            acc,
+            (*pointer.offset(i as isize)).swap_bytes(),
+        );
     }
     (!acc).swap_bytes()
 }
 
 trait AsSlice {
-    fn as_slice<'a>(&'a self) -> &[u8] where Self: Sized {
+    fn as_slice<'a>(&'a self) -> &[u8]
+    where
+        Self: Sized,
+    {
         unsafe {
             std::slice::from_raw_parts::<'a, u8>(
                 self as *const Self as *const u8,

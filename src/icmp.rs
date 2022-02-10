@@ -1,4 +1,4 @@
-use crate::{AsSlice, network_checksum};
+use crate::{network_checksum, AsSlice};
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -30,7 +30,7 @@ impl IcmpHeader {
         network_checksum(
             self as *const IcmpHeader as *const u16,
             length,
-            self.checksum
+            self.checksum,
         )
     }
 

@@ -1,6 +1,6 @@
-use crate::AsSlice;
-use crate::ip::IpHeader;
 use crate::icmp::IcmpHeader;
+use crate::ip::IpHeader;
+use crate::AsSlice;
 
 pub struct PacketView<'a> {
     pub l3_offset: isize,
